@@ -12,8 +12,6 @@ class ItemDB:
         self.keywords = keywords
         self.max_items = max_items
         self.db_file = db_file
-        # self.conn = sqlite3.connect(self.db_file)  # Убираем
-        # self.create_tables() # создаем таблицы
 
     async def create_tables(self):
         """Создает таблицы в базе данных, если они не существуют."""

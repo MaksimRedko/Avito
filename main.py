@@ -45,7 +45,8 @@ async def main():
                 print(f"[{time.strftime('%X')}] Новый товар: {item['name']}")
     else:
         print(f"[{time.strftime('%X')}] Нет новых товаров или ошибка при получении.")
-
+    delay = random.uniform(5, 10)
+    time.sleep(delay)
     try:
         while True:
             new_items = fetch_items(AVITO_URL, session)
@@ -57,7 +58,7 @@ async def main():
                             await send_item_notification(bot, chat_id, item)
             else:
                 print(f"[{time.strftime('%X')}] Нет новых товаров или ошибка при получении.")
-            delay = CHECK_INTERVAL + random.uniform(-5, 5)
+            delay = CHECK_INTERVAL + random.uniform(-10, 10)
             await asyncio.sleep(delay)
     except KeyboardInterrupt:
         print("Завершение работы...")
