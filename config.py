@@ -3,6 +3,10 @@ from typing import List
 
 BOT_TOKEN = "7757476367:AAGKNCRriatQ_p9CloQCqZnnvLwanq-l6bo"  #  оригинал
 
+API_KEY = 'f6bd71199c6985a2ae8310b9b925c216'
+CREATE_TASK_URL = "https://api.rucaptcha.com/createTask"
+GET_TASK_RESULT_URL = "https://api.rucaptcha.com/getTaskResult"
+
 # BOT_TOKEN = '6548451315:AAGSYOIFxn9avnYbAEzaHLQMtMEqptugxL4' #  тестовый
 
 # AVITO_URL = 'https://www.avito.ru/sankt-peterburg/bytovaya_elektronika?context=H4sIAAAAAAAA_wFRAK7_YToyOntzOjg6ImZyb21QYWdlIjtzOjE0OiJjYXRlZ29yeVdpZGdldCI7czo5OiJmcm9tX3BhZ2UiO3M6MTQ6ImNhdGVnb3J5V2lkZ2V0Ijt9inXVTFEAAAA&q=Apple&s=104'
@@ -104,6 +108,8 @@ NEGATIVE_KEYWORDS: List[str] = [
     # "клавиатура",
     "артикул",
     "арт.",
+    "2012",
+    "2013",
     "2014",
     "2015",
     "2016",

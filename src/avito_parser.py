@@ -4,6 +4,7 @@ import random
 from typing import List
 import datetime
 
+import requests
 from aiogram import Bot
 from playwright.async_api import async_playwright, Page
 
@@ -11,7 +12,7 @@ import config
 from src.db import ItemDB
 from src.filters import test_item_filter, check_geo
 from src.telegram_bot import send_item_notification
-from src.utils import create_proxy, is_captcha_present, handle_avito_ip_captcha
+from src.utils import create_proxy, is_captcha_present, click_continue, solve_captcha
 
 
 async def parse_listings(page: Page, item_db: ItemDB, bot: Bot, user_chat_ids: List[int]) -> List[dict]:
@@ -94,7 +95,8 @@ async def parse_listings(page: Page, item_db: ItemDB, bot: Bot, user_chat_ids: L
     return items
 
 
-async def run_parser_with_refresh(url_list: List[str], use_proxy=False, bot=None, item_db=None, user_chat_ids=None):
+async def run_parser_with_refresh(url_list: List[str], use_proxy=False, bot=None, item_db=None, user_chat_ids=None,
+                                  headless=False):
     """
     Обновляет страницу, парсит объявления и обрабатывает капчу.
     """
@@ -103,7 +105,14 @@ async def run_parser_with_refresh(url_list: List[str], use_proxy=False, bot=None
         proxy_index = 0
         url_index = 0
 
-        browser = await p.chromium.launch(headless=False)
+        browser = await p.chromium.launch(headless=headless,ignore_default_args=['--enable-automation'],
+                                          args=[
+                                              '--disable-blink-features=AutomationControlled',
+                                              # Отключаем индикаторы автоматизации
+                                              '--no-sandbox',  # Для Docker/Linux, если нужно
+                                              '--disable-setuid-sandbox',  # Для Docker/Linux, если нужно
+                                              '--disable-dev-shm-usage'  # Для Docker/Linux, если нужно
+                                          ])
 
         while True:
             try:
@@ -113,7 +122,7 @@ async def run_parser_with_refresh(url_list: List[str], use_proxy=False, bot=None
 
                 # ---  Ротация User-Agent ---
                 user_agent = random.choice(config.USER_AGENTS)  # Выбираем случайный User-Agent
-                context = await browser.new_context(user_agent=user_agent)  # Создаем НОВЫЙ контекст с новым User-Agent
+                context = await browser.new_context(user_agent=user_agent, viewport={'width': 1920, 'height': 1080})  # Создаем НОВЫЙ контекст с новым User-Agent
                 page = await context.new_page()  # Создаем НОВУЮ страницу в этом контексте
                 # --- Конец ротации User-Agent ---
 
@@ -128,39 +137,52 @@ async def run_parser_with_refresh(url_list: List[str], use_proxy=False, bot=None
                 response = await page.goto(url, wait_until='domcontentloaded')
 
                 if await is_captcha_present(page):
-                    logging.warning(f"[{datetime.time}] CAPTCHA DETECTED! Script paused, waiting for manual solving.")
-                    print(
-                        "\n ⚠️ CAPTCHA DETECTED! Please solve the CAPTCHA in the browser window and press Enter to continue...")
+                    logging.warning(f"[{datetime.time}] ️ CAPTCHA DETECTED!")
 
-                    await  asyncio.sleep(10)
-                    response = await page.goto(url, wait_until='domcontentloaded')
                     # await browser.close()  # Закрываем headless браузер
-                    # browser = await p.chromium.launch(headless=False)  # Запускаем видимый браузер для ручного решения капчи
+                    # browser = await p.chromium.launch(
+                    #     headless=False)  # Запускаем видимый браузер для ручного решения капчи
                     # context = await browser.new_context(user_agent=user_agent)  # Создаем контекст в видимом браузере
                     # page = await context.new_page()  # Создаем страницу в видимом браузере
                     # await page.goto(url, wait_until='domcontentloaded')  # Переходим по URL еще раз в видимом
-                    # ---  Handle "IP problem" captcha page first ---
-                    if await handle_avito_ip_captcha(page):  # Вызываем новую функцию
-                        # If handle_avito_ip_captcha returns True, it means "Continue" button was clicked
-                        # and we should re-check for captcha presence AFTER clicking "Continue"
-                        if await is_captcha_present(page):  # Check again AFTER clicking "Continue"
-                            logging.info(
-                                "Captcha still present after 'Продолжить' button. Proceeding to solve visual captcha.")
-                            print(
-                                "ℹ️ Captcha still present after 'Продолжить' button. Proceeding to solve visual captcha.")
-                            # ---  Here you would add your code to solve the visual captcha (e.g., using 2Captcha or manual solving) ---
-                            # ... (rest of your captcha solving logic - 2Captcha or manual) ...
-                        else:
-                            logging.info(
-                                "'IP problem' page handled, no further captcha detected immediately. Continuing parsing.")
-                            print(
-                                "✅ 'IP problem' page handled, no further captcha detected immediately. Continuing parsing.")
-                            continue  # Continue parsing if no further captcha immediately after "Продолжить"
+                    result, dict = await solve_captcha(page)
 
-                    # await browser.close()  # Закрываем видимый браузер после решения капчи
-                    # browser = await p.chromium.launch(headless=True)  # Возвращаемся к headless режиму
-                    print("Continuing after manual CAPTCHA solving.\n")
-                    continue
+                    headers = {  # Заголовки, как в примере запроса (Content-Type, User-Agent, Referer, Origin, X-Cube)
+                        'Content-Type': 'application/json',  # Content-Type: application/json - ВАЖНО!
+                        'User-Agent': user_agent,  # Используем User-Agent текущей страницы
+                        'Referer': page.url,  # Referer - URL страницы с капчей
+                        'Origin': 'https://www.avito.ru',  # Origin - домен Avito
+                        'X-Cube': await page.evaluate("document.querySelector('#cubeResult')?.innerHTML || ''")
+                    }
+
+                    #  Получаем cookies из текущего контекста браузера и добавляем в headers
+                    cookies = await page.context.cookies(urls=[page.url])
+                    headers['Cookie'] = '; '.join([f"{cookie['name']}={cookie['value']}" for cookie in cookies])
+
+                    time_dict = {
+                        'captcha': "",
+                        'captcha_id': dict['solution']['captcha_id'],
+                        'captcha_output': dict['solution']['captcha_output'],
+                        'gen_time': dict['solution']['gen_time'],
+                        'hCaptchaResponse':"",
+                        'lot_number': dict['solution']['lot_number'],
+                        'pass_token': dict['solution']['pass_token'],
+                    }
+                    if result:
+                        print('РЕШИИИИИИИИИИЛИИИИИИИИ')
+                        response = requests.post(url='https://www.avito.ru/web/1/firewallCaptcha/verify', json=time_dict, timeout=30)
+                        print(response.status_code)
+                        if response.status_code == 200:
+                            print('ждем перезагрузочку')
+                            await asyncio.sleep(random.uniform(3, 10))
+                            await page.reload(wait_until='domcontentloaded')
+                            items = await parse_listings(page, item_db, bot, user_chat_ids)
+                    else:
+                        print('Не РЕШИЛИ(((((((((')
+                    # input()
+
+                    # print("Continuing after manual CAPTCHA solving.\n")
+                    # continue
 
                 # if response and response.status == 429:
                 #     logging.warning(f"RECEIVED 429 STATUS CODE! Browser SHOULD REMAIN OPEN.")

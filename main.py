@@ -33,7 +33,7 @@ async def main():
 
     test_url = [config.AVITO_URL_IPAD, config.AVITO_URL_MACBOOK]
     parser_task = asyncio.create_task(run_parser_with_refresh(test_url, use_proxy=True, bot=bot, item_db=item_db,
-                                                              user_chat_ids=user_chat_ids))  # Запускаем парсер как фоновую задачу
+                                                              user_chat_ids=user_chat_ids, headless=False))  # Запускаем парсер как фоновую задачу
 
     await asyncio.gather(parser_task,
                          bot_task)  # Запускаем обе задачи конкурентно и ждем завершения обеих (хотя они бесконечные)
